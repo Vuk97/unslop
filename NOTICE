@@ -1,0 +1,14 @@
+Unslop includes an original digest of editorial rules from the Google
+developer documentation style guide:
+
+https://developers.google.com/style
+
+That guide is licensed under Creative Commons Attribution 4.0
+(https://creativecommons.org/licenses/by/4.0/). This repository is not
+affiliated with Google.
+
+The runtime contract is the local files in skill/unslop/. Agents must not
+fetch the public guide as a step.
+
+House rule that differs from Google: do not emit em dashes or en dashes
+in agent output. Recast or use a hyphen-minus.

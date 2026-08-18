@@ -1,0 +1,6 @@
+interface:
+  display_name: "Unslop"
+  short_description: "Google-docs English. No chatbot padding."
+  default_prompt: "Use $unslop on every reply. Do not fetch any style-guide URL."
+policy:
+  allow_implicit_invocation: true
