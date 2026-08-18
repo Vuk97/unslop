@@ -25,7 +25,7 @@ class InstallTests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8"))
         out = proc.stdout.decode("utf-8")
-        self.assertIn("Skill copied to", out)
+        self.assertIn("Skill auto-installed to", out)
         self.assertIn("Always-on contract written to", out)
 
     def test_isolated_home_installs_skill_and_always_on(self) -> None:
@@ -36,6 +36,13 @@ class InstallTests(unittest.TestCase):
             env["HOME"] = str(fake_home)
             env["UNSLOP_HOME"] = str(dest)
             env["UNSLOP_INSTALL_OPTIONAL"] = "1"
+            desktop = fake_home / "desktop-plugin"
+            (desktop / "skills").mkdir(parents=True)
+            (desktop / "manifest.json").write_text(
+                json.dumps({"skills": [{"skillId": "pdf", "name": "pdf", "enabled": True}]}),
+                encoding="utf-8",
+            )
+            env["UNSLOP_DESKTOP_SKILLS_PLUGIN"] = str(desktop)
             proc = subprocess.run(
                 [sys.executable, str(INSTALL)],
                 cwd=str(ROOT),
@@ -77,6 +84,14 @@ class InstallTests(unittest.TestCase):
 
             settings = json.loads((fake_home / ".claude" / "settings.json").read_text())
             self.assertIn("unslop.py", json.dumps(settings))
+            self.assertTrue(settings.get("enabledPlugins", {}).get("unslop@skills-dir"))
+            self.assertTrue((desktop / "skills" / "unslop" / "SKILL.md").is_file())
+            manifest = json.loads((desktop / "manifest.json").read_text(encoding="utf-8"))
+            names = {s.get("skillId") for s in manifest["skills"]}
+            self.assertIn("unslop", names)
+            self.assertIn("pdf", names)
+            unslop = next(s for s in manifest["skills"] if s["skillId"] == "unslop")
+            self.assertTrue(unslop["enabled"])
 
             proc = subprocess.run(
                 [sys.executable, str(INSTALL), "--verify"],

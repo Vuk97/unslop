@@ -234,6 +234,103 @@ def write_skill_zip(skill_dir: Path, zip_path: Path, dry_run: bool) -> None:
                 zf.write(path, Path(SKILL_NAME) / path.relative_to(skill_dir))
 
 
+def skill_description(skill_dir: Path) -> str:
+    text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    if "description:" not in text:
+        return "Always-on clear English for every reply."
+    after = text.split("description:", 1)[1]
+    if after.lstrip().startswith(">"):
+        lines = []
+        for line in after.splitlines()[1:]:
+            if line.startswith("---"):
+                break
+            lines.append(line.strip())
+        return " ".join(lines).strip()
+    return after.splitlines()[0].strip()
+
+
+def desktop_plugin_roots() -> list[Path]:
+    extra = os.environ.get("UNSLOP_DESKTOP_SKILLS_PLUGIN", "").strip()
+    if extra:
+        return [Path(extra).expanduser()]
+    root = (
+        home()
+        / "Library"
+        / "Application Support"
+        / "Claude"
+        / "local-agent-mode-sessions"
+        / "skills-plugin"
+    )
+    if not root.is_dir():
+        return []
+    return [path.parent for path in root.rglob("manifest.json")]
+
+
+def upsert_desktop_manifest(manifest_path: Path, description: str, dry_run: bool) -> None:
+    data: dict = {"skills": []}
+    if manifest_path.is_file():
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        data.setdefault("skills", [])
+    skills = [s for s in data["skills"] if s.get("skillId") != SKILL_NAME and s.get("name") != SKILL_NAME]
+    skills.append(
+        {
+            "skillId": SKILL_NAME,
+            "name": SKILL_NAME,
+            "description": description,
+            "creatorType": "user",
+            "updatedAt": None,
+            "enabled": True,
+        }
+    )
+    data["skills"] = skills
+    write_text(manifest_path, json.dumps(data, indent=2, ensure_ascii=True) + "\n", dry_run)
+
+
+def strip_desktop_manifest(manifest_path: Path, dry_run: bool) -> None:
+    if not manifest_path.is_file():
+        return
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    skills = data.get("skills", [])
+    filtered = [s for s in skills if s.get("skillId") != SKILL_NAME and s.get("name") != SKILL_NAME]
+    if filtered == skills:
+        return
+    data["skills"] = filtered
+    write_text(manifest_path, json.dumps(data, indent=2, ensure_ascii=True) + "\n", dry_run)
+
+
+def install_desktop_skill(skill_src: Path, dry_run: bool) -> list[Path]:
+    description = skill_description(skill_src)
+    installed: list[Path] = []
+    for plugin_root in desktop_plugin_roots():
+        skills_dir = plugin_root / "skills"
+        copy_tree(skill_src, skills_dir / SKILL_NAME, dry_run)
+        upsert_desktop_manifest(plugin_root / "manifest.json", description, dry_run)
+        installed.append(skills_dir / SKILL_NAME)
+    return installed
+
+
+def enable_skill_plugin(settings_path: Path, dry_run: bool) -> None:
+    data: dict = {}
+    if settings_path.is_file():
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    plugins = data.setdefault("enabledPlugins", {})
+    plugins[f"{SKILL_NAME}@skills-dir"] = True
+    write_text(settings_path, json.dumps(data, indent=2, ensure_ascii=True) + "\n", dry_run)
+
+
+def disable_skill_plugin(settings_path: Path, dry_run: bool) -> None:
+    if not settings_path.is_file():
+        return
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    plugins = data.get("enabledPlugins", {})
+    key = f"{SKILL_NAME}@skills-dir"
+    if key not in plugins:
+        return
+    plugins.pop(key, None)
+    data["enabledPlugins"] = plugins
+    write_text(settings_path, json.dumps(data, indent=2, ensure_ascii=True) + "\n", dry_run)
+
+
 def install(dry_run: bool) -> int:
     root = repo_root()
     dest = install_home()
@@ -258,8 +355,10 @@ def install(dry_run: bool) -> int:
 
     for skills_root in skill_roots():
         copy_tree(skill_src if dry_run else skill_dest, skills_root / SKILL_NAME, dry_run)
+    desktop_paths = install_desktop_skill(skill_src if dry_run else skill_dest, dry_run)
 
     merge_claude_settings(home() / ".claude" / "settings.json", hook_dest, dry_run)
+    enable_skill_plugin(home() / ".claude" / "settings.json", dry_run)
     merge_codex_hooks(home() / ".codex" / "hooks.json", hook_dest, dry_run)
     write_grok_hook(home() / ".grok" / "hooks" / "unslop.json", hook_dest, dry_run)
 
@@ -273,17 +372,20 @@ def install(dry_run: bool) -> int:
 
     print(f"Installed to {dest}")
     print()
-    print("Skill copied to:")
+    print("Skill auto-installed to:")
     for skills_root in skill_roots():
         print(f"  {skills_root / SKILL_NAME}")
-    print(f"  zip for Claude chat upload: {zip_dest}")
+    for path in desktop_paths:
+        print(f"  {path}  (Claude Desktop, enabled)")
+    print(f"  zip (claude.ai account upload if Desktop list does not sync): {zip_dest}")
     print()
     print("Always-on contract written to:")
     for path in always_on_rules() + always_on_files():
         print(f"  {path}")
     print()
     print("Hooks written for Claude Code, Codex, and Grok.")
-    print("Claude chat: Customize > Skills > Upload the zip, then leave Unslop on.")
+    print("Claude Desktop: Unslop is registered and enabled in the local skill list.")
+    print("claude.ai web: if the skill is missing, upload the zip once.")
     print("Codex: run /hooks and trust unslop.py once.")
     print("Restart Claude / Codex / Grok so they reload.")
     return 0
@@ -306,6 +408,10 @@ def uninstall(dry_run: bool) -> int:
         remove_path(path, dry_run)
     for skills_root in skill_roots():
         remove_path(skills_root / SKILL_NAME, dry_run)
+    for plugin_root in desktop_plugin_roots():
+        remove_path(plugin_root / "skills" / SKILL_NAME, dry_run)
+        strip_desktop_manifest(plugin_root / "manifest.json", dry_run)
+    disable_skill_plugin(home() / ".claude" / "settings.json", dry_run)
     for path in always_on_files():
         remove_sentinel(path, dry_run)
     if dest.exists():
@@ -333,6 +439,9 @@ def verify() -> int:
     zip_path = dest / "unslop.zip"
     if not zip_path.is_file():
         missing.append(str(zip_path))
+    for plugin_root in desktop_plugin_roots():
+        if not (plugin_root / "skills" / SKILL_NAME / "SKILL.md").is_file():
+            missing.append(str(plugin_root / "skills" / SKILL_NAME / "SKILL.md"))
     if missing:
         print("NOT installed:")
         for path in missing:

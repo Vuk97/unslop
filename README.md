@@ -17,11 +17,13 @@ Nothing fetches a URL. The contract is a local file.
 | Claude Code (CLI and the Code panel in Desktop) | Copied to `~/.claude/skills/unslop` | `~/.claude/CLAUDE.md` and `~/.claude/rules/unslop.md` | Yes. `~/.claude/settings.json` |
 | Codex CLI and Desktop | Copied to `~/.codex/skills/unslop` | `~/.codex/AGENTS.md` | Yes. `~/.codex/hooks.json`. Trust `unslop.py` once in `/hooks` |
 | Grok | Copied to `~/.grok/skills/unslop` | `~/.grok/rules/unslop.md` and `~/.grok/AGENTS.md` | Yes. Home rule plus child-brief wrap |
-| Claude chat (claude.ai or the Chat tab) | Zip written to `~/.local/share/unslop/unslop.zip` | Same zip: turn Unslop **on** in Customize > Skills | No. Chat has no hook API |
+| Claude Desktop Chat / Cowork | Auto-installed into the Desktop skill list and **enabled** | Always-on rules plus the enabled skill | No hook API. Skill is on; hooks are not |
+| claude.ai in the browser | Zip at `~/.local/share/unslop/unslop.zip` if the account list does not sync | Upload that zip once, leave Unslop on | No |
 
-Claude Code and Claude chat are different products. Chat will not read
-`settings.json`. The installer still builds the Chat skill. Open
-Customize > Skills > Upload and pick `unslop.zip`, then leave the toggle on.
+`./install.sh` copies the skill. It also registers Unslop as enabled in Claude
+Desktop's local skill catalog, so you should not have to zip-upload on Desktop.
+claude.ai in a browser is a cloud account list. If the skill is missing there,
+upload the zip once.
 
 ## Install
 
@@ -32,7 +34,7 @@ cd unslop
 python3 install.py --verify
 ```
 
-Restart Claude, Codex, and Grok. Old sessions do not reload hooks or rules.
+Restart Claude, Codex, and Grok. Old sessions do not reload hooks, skills, or rules.
 In Codex, run `/hooks` and trust `unslop.py`.
 
 `./uninstall.sh` removes the skill copies, always-on blocks, and hooks.
