@@ -1,20 +1,25 @@
 # Unslop
 
-Stops Claude, Codex, and Grok from writing like chatbots.
+Stops coding agents from writing like chatbots.
 
-Unslop is a local writing skill plus force hooks. It is a digest of the
-[Google developer documentation style guide](https://developers.google.com/style).
-Agents do not open that page. A short file on disk is the whole contract.
+Local skill plus hooks. The skill is optional. Models skip it. Hooks force
+the style on the main thread, on subagents, and on their outputs. Nothing
+fetches a URL.
 
-Skills are optional. Models skip them. Hooks are not:
+## Where it works
 
-- Before every reply, inject the local contract.
-- Before every subagent, scrub long dashes out of the brief and append the same rules.
-- After a sloppy child return or a sloppy final message, bounce it once for a rewrite.
+| Surface | Skill | Forced |
+| --- | --- | --- |
+| Claude **Code** (CLI, and the Code panel in Desktop) | Yes | Yes. Hooks in `~/.claude/settings.json` |
+| Codex CLI and Desktop | Yes | Yes. Hooks in `~/.codex/hooks.json`. Trust `unslop.py` in `/hooks` |
+| Grok | Yes | Yes. Home rule plus child-brief wrap. Grok ignores prompt-hook stdout |
+| Claude **chat** (claude.ai, or the Chat tab in Desktop) | Upload `SKILL.md` if you want `/unslop` | No. Chat has no hook API |
 
-Works on Claude Code (CLI and Desktop), Codex (CLI and Desktop), and Grok. Grok
-ignores prompt-hook stdout, so Grok also gets a home rule. Codex skips the hook
-until you trust it.
+Claude Code and Claude chat are different products. Chat will not read
+`~/.claude/settings.json`. For always-on Chat, paste `skill/unslop/ALWAYS_ON.md`
+into custom instructions.
+
+## How to force it
 
 ```bash
 git clone https://github.com/Vuk97/unslop
@@ -22,7 +27,11 @@ cd unslop
 ./install.sh
 ```
 
-Restart Claude, Codex, and Grok. In Codex, run `/hooks` and trust `unslop.py`.
+1. Restart Claude Code, Codex, and Grok. Old sessions do not load new hooks.
+2. In Codex, run `/hooks` and trust `unslop.py`. Until you do, Codex skips it.
+3. Test in **Code**, not Chat. Ask for a two-sentence answer. You should not
+   get chatbot padding.
+
 `./uninstall.sh` removes the wiring. Existing hooks stay.
 
-Apache-2.0. Style digest CC BY 4.0. See [NOTICE](NOTICE).
+Apache-2.0. Style digest from the [Google developer documentation style guide](https://developers.google.com/style), CC BY 4.0. See [NOTICE](NOTICE).
