@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install Unslop: local skill + force-hooks. No network fetch at runtime."""
+"""Install Unslop: skill, always-on rules, and force-hooks."""
 
 from __future__ import annotations
 
@@ -8,22 +8,13 @@ import json
 import os
 import shutil
 import sys
+import zipfile
 from pathlib import Path
 
 SKILL_NAME = "unslop"
 SENTINEL_START = "<!-- unslop:start -->"
 SENTINEL_END = "<!-- unslop:end -->"
 HOOK_MARK = "unslop.py"
-
-AGENTS_BLOCK = """<!-- unslop:start -->
-## User-facing prose (every reply)
-
-Follow Unslop. The compact contract lives on disk and is injected each turn.
-Do not fetch https://developers.google.com/style. If a hook missed, read
-the local skill's ALWAYS_ON.md. Same contract for subagent briefs and returns.
-<!-- unslop:end -->
-"""
-
 SUBAGENT_MATCHER = "Task|Agent|spawn_subagent|spawn_agent"
 
 
@@ -67,6 +58,10 @@ def write_text(path: Path, text: str, dry_run: bool) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def always_on_block(body: str) -> str:
+    return f"{SENTINEL_START}\n{body.strip()}\n{SENTINEL_END}\n"
+
+
 def replace_or_append_sentinel(path: Path, block: str, dry_run: bool) -> None:
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
     if SENTINEL_START in existing and SENTINEL_END in existing:
@@ -90,16 +85,50 @@ def remove_sentinel(path: Path, dry_run: bool) -> None:
     write_text(path, new, dry_run)
 
 
-def symlink_skill(target: Path, link: Path, dry_run: bool) -> None:
-    if dry_run:
-        print(f"symlink {link} -> {target}")
+def remove_path(path: Path, dry_run: bool) -> None:
+    if not (path.exists() or path.is_symlink()):
         return
-    link.parent.mkdir(parents=True, exist_ok=True)
-    if link.is_symlink() or link.is_file():
-        link.unlink()
-    elif link.exists():
-        shutil.rmtree(link)
-    os.symlink(target, link)
+    if dry_run:
+        print(f"remove {path}")
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    else:
+        shutil.rmtree(path)
+
+
+def skill_roots() -> list[Path]:
+    roots = [
+        home() / ".claude" / "skills",
+        home() / ".codex" / "skills",
+        home() / ".grok" / "skills",
+        home() / ".agents" / "skills",
+    ]
+    cursor = home() / ".cursor"
+    if cursor.is_dir() or os.environ.get("UNSLOP_INSTALL_OPTIONAL") == "1":
+        roots.append(home() / ".cursor" / "skills")
+    claude_app = home() / "Library" / "Application Support" / "Claude"
+    if claude_app.is_dir() or os.environ.get("UNSLOP_INSTALL_OPTIONAL") == "1":
+        roots.append(claude_app / "skills")
+    extra = os.environ.get("UNSLOP_SKILL_ROOTS", "").strip()
+    if extra:
+        roots.extend(Path(p).expanduser() for p in extra.split(os.pathsep) if p)
+    return roots
+
+
+def always_on_files() -> list[Path]:
+    return [
+        home() / ".claude" / "CLAUDE.md",
+        home() / ".codex" / "AGENTS.md",
+        home() / ".grok" / "AGENTS.md",
+    ]
+
+
+def always_on_rules() -> list[Path]:
+    return [
+        home() / ".claude" / "rules" / f"{SKILL_NAME}.md",
+        home() / ".grok" / "rules" / f"{SKILL_NAME}.md",
+    ]
 
 
 def hook_handler(inject: Path) -> dict:
@@ -192,6 +221,19 @@ def write_grok_hook(path: Path, inject: Path, dry_run: bool) -> None:
     write_text(path, json.dumps(data, indent=2, ensure_ascii=True) + "\n", dry_run)
 
 
+def write_skill_zip(skill_dir: Path, zip_path: Path, dry_run: bool) -> None:
+    if dry_run:
+        print(f"zip {skill_dir} -> {zip_path}")
+        return
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    if zip_path.exists():
+        zip_path.unlink()
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in skill_dir.rglob("*"):
+            if path.is_file():
+                zf.write(path, Path(SKILL_NAME) / path.relative_to(skill_dir))
+
+
 def install(dry_run: bool) -> int:
     root = repo_root()
     dest = install_home()
@@ -203,6 +245,7 @@ def install(dry_run: bool) -> int:
 
     skill_dest = dest / "skill" / SKILL_NAME
     hook_dest = dest / "hooks" / "unslop.py"
+    zip_dest = dest / "unslop.zip"
     copy_tree(skill_src, skill_dest, dry_run)
     if dry_run:
         print(f"copy {hook_src} -> {hook_dest}")
@@ -211,14 +254,10 @@ def install(dry_run: bool) -> int:
         shutil.copy2(hook_src, hook_dest)
         hook_dest.chmod(0o755)
         shutil.copy2(skill_dest / "ALWAYS_ON.md", hook_dest.parent / "ALWAYS_ON.md")
+    write_skill_zip(skill_src if dry_run else skill_dest, zip_dest, dry_run)
 
-    for skills_root in (
-        home() / ".claude" / "skills",
-        home() / ".codex" / "skills",
-        home() / ".grok" / "skills",
-        home() / ".agents" / "skills",
-    ):
-        symlink_skill(skill_dest, skills_root / SKILL_NAME, dry_run)
+    for skills_root in skill_roots():
+        copy_tree(skill_src if dry_run else skill_dest, skills_root / SKILL_NAME, dry_run)
 
     merge_claude_settings(home() / ".claude" / "settings.json", hook_dest, dry_run)
     merge_codex_hooks(home() / ".codex" / "hooks.json", hook_dest, dry_run)
@@ -226,19 +265,27 @@ def install(dry_run: bool) -> int:
 
     always_on = (skill_src if dry_run else skill_dest).joinpath("ALWAYS_ON.md")
     rule_body = always_on.read_text(encoding="utf-8")
-    for rules_dir in (home() / ".grok" / "rules", home() / ".claude" / "rules"):
-        write_text(rules_dir / f"{SKILL_NAME}.md", rule_body, dry_run)
-
-    replace_or_append_sentinel(home() / ".claude" / "CLAUDE.md", AGENTS_BLOCK, dry_run)
-    replace_or_append_sentinel(home() / ".codex" / "AGENTS.md", AGENTS_BLOCK, dry_run)
+    block = always_on_block(rule_body)
+    for path in always_on_rules():
+        write_text(path, rule_body if rule_body.endswith("\n") else rule_body + "\n", dry_run)
+    for path in always_on_files():
+        replace_or_append_sentinel(path, block, dry_run)
 
     print(f"Installed to {dest}")
-    print("Claude CLI + Desktop Code: inject, wrap Task/Agent, bounce slop")
-    print("Codex CLI + Desktop: inject, wrap spawn_agent, bounce slop")
-    print("Grok: home rule + wrap spawn_subagent (UserPromptSubmit stdout is ignored)")
     print()
-    print("Codex: run /hooks and trust unslop.py")
-    print("Restart Claude / Codex / Grok so hooks reload")
+    print("Skill copied to:")
+    for skills_root in skill_roots():
+        print(f"  {skills_root / SKILL_NAME}")
+    print(f"  zip for Claude chat upload: {zip_dest}")
+    print()
+    print("Always-on contract written to:")
+    for path in always_on_rules() + always_on_files():
+        print(f"  {path}")
+    print()
+    print("Hooks written for Claude Code, Codex, and Grok.")
+    print("Claude chat: Customize > Skills > Upload the zip, then leave Unslop on.")
+    print("Codex: run /hooks and trust unslop.py once.")
+    print("Restart Claude / Codex / Grok so they reload.")
     return 0
 
 
@@ -254,43 +301,44 @@ def uninstall(dry_run: bool) -> int:
     codex_hooks = home() / ".codex" / "hooks.json"
     if codex_hooks.is_file():
         strip_marked(json.loads(codex_hooks.read_text(encoding="utf-8")), dry_run, codex_hooks)
-    grok_hook = home() / ".grok" / "hooks" / "unslop.json"
-    if grok_hook.exists():
-        if dry_run:
-            print(f"remove {grok_hook}")
-        else:
-            grok_hook.unlink()
-    for path in (
-        home() / ".grok" / "rules" / f"{SKILL_NAME}.md",
-        home() / ".claude" / "rules" / f"{SKILL_NAME}.md",
-    ):
-        if path.is_file():
-            if dry_run:
-                print(f"remove {path}")
-            else:
-                path.unlink()
-    for skills_root in (
-        home() / ".claude" / "skills",
-        home() / ".codex" / "skills",
-        home() / ".grok" / "skills",
-        home() / ".agents" / "skills",
-    ):
-        link = skills_root / SKILL_NAME
-        if link.exists() or link.is_symlink():
-            if dry_run:
-                print(f"remove {link}")
-            elif link.is_symlink() or link.is_file():
-                link.unlink()
-            else:
-                shutil.rmtree(link)
-    remove_sentinel(home() / ".claude" / "CLAUDE.md", dry_run)
-    remove_sentinel(home() / ".codex" / "AGENTS.md", dry_run)
+    remove_path(home() / ".grok" / "hooks" / "unslop.json", dry_run)
+    for path in always_on_rules():
+        remove_path(path, dry_run)
+    for skills_root in skill_roots():
+        remove_path(skills_root / SKILL_NAME, dry_run)
+    for path in always_on_files():
+        remove_sentinel(path, dry_run)
     if dest.exists():
-        if dry_run:
-            print(f"remove {dest}")
-        else:
-            shutil.rmtree(dest)
+        remove_path(dest, dry_run)
     print("Uninstalled Unslop.")
+    return 0
+
+
+def verify() -> int:
+    dest = install_home()
+    missing = []
+    skill_md = dest / "skill" / SKILL_NAME / "SKILL.md"
+    if not skill_md.is_file():
+        missing.append(str(skill_md))
+    for skills_root in skill_roots():
+        path = skills_root / SKILL_NAME / "SKILL.md"
+        if not path.is_file():
+            missing.append(str(path))
+    for path in always_on_rules():
+        if not path.is_file() or "Do not fetch" not in path.read_text(encoding="utf-8"):
+            missing.append(str(path))
+    for path in always_on_files():
+        if not path.is_file() or SENTINEL_START not in path.read_text(encoding="utf-8"):
+            missing.append(str(path))
+    zip_path = dest / "unslop.zip"
+    if not zip_path.is_file():
+        missing.append(str(zip_path))
+    if missing:
+        print("NOT installed:")
+        for path in missing:
+            print(f"  {path}")
+        return 1
+    print("Unslop skill + always-on + zip are present.")
     return 0
 
 
@@ -298,7 +346,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--uninstall", action="store_true")
+    parser.add_argument("--verify", action="store_true")
     args = parser.parse_args()
+    if args.verify:
+        return verify()
     if args.uninstall:
         return uninstall(args.dry_run)
     return install(args.dry_run)

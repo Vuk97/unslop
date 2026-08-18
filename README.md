@@ -1,37 +1,41 @@
 # Unslop
 
-Stops coding agents from writing like chatbots.
+Stops Claude, Codex, and Grok from writing like chatbots.
 
-Local skill plus hooks. The skill is optional. Models skip it. Hooks force
-the style on the main thread, on subagents, and on their outputs. Nothing
-fetches a URL.
+`./install.sh` installs three things for you:
 
-## Where it works
+1. **The skill** on Claude, Codex, and Grok (CLI and desktop).
+2. **Always-on rules** so the contract is in context every session.
+3. **Hooks** so the main thread, subagents, and outputs stay on voice.
 
-| Surface | Skill | Forced |
-| --- | --- | --- |
-| Claude **Code** (CLI, and the Code panel in Desktop) | Yes | Yes. Hooks in `~/.claude/settings.json` |
-| Codex CLI and Desktop | Yes | Yes. Hooks in `~/.codex/hooks.json`. Trust `unslop.py` in `/hooks` |
-| Grok | Yes | Yes. Home rule plus child-brief wrap. Grok ignores prompt-hook stdout |
-| Claude **chat** (claude.ai, or the Chat tab in Desktop) | Upload `SKILL.md` if you want `/unslop` | No. Chat has no hook API |
+Nothing fetches a URL. The contract is a local file.
+
+## What install does
+
+| Surface | Skill | Always-on | Hooks |
+| --- | --- | --- | --- |
+| Claude Code (CLI and the Code panel in Desktop) | Copied to `~/.claude/skills/unslop` | `~/.claude/CLAUDE.md` and `~/.claude/rules/unslop.md` | Yes. `~/.claude/settings.json` |
+| Codex CLI and Desktop | Copied to `~/.codex/skills/unslop` | `~/.codex/AGENTS.md` | Yes. `~/.codex/hooks.json`. Trust `unslop.py` once in `/hooks` |
+| Grok | Copied to `~/.grok/skills/unslop` | `~/.grok/rules/unslop.md` and `~/.grok/AGENTS.md` | Yes. Home rule plus child-brief wrap |
+| Claude chat (claude.ai or the Chat tab) | Zip written to `~/.local/share/unslop/unslop.zip` | Same zip: turn Unslop **on** in Customize > Skills | No. Chat has no hook API |
 
 Claude Code and Claude chat are different products. Chat will not read
-`~/.claude/settings.json`. For always-on Chat, paste `skill/unslop/ALWAYS_ON.md`
-into custom instructions.
+`settings.json`. The installer still builds the Chat skill. Open
+Customize > Skills > Upload and pick `unslop.zip`, then leave the toggle on.
 
-## How to force it
+## Install
 
 ```bash
 git clone https://github.com/Vuk97/unslop
 cd unslop
 ./install.sh
+python3 install.py --verify
 ```
 
-1. Restart Claude Code, Codex, and Grok. Old sessions do not load new hooks.
-2. In Codex, run `/hooks` and trust `unslop.py`. Until you do, Codex skips it.
-3. Test in **Code**, not Chat. Ask for a two-sentence answer. You should not
-   get chatbot padding.
+Restart Claude, Codex, and Grok. Old sessions do not reload hooks or rules.
+In Codex, run `/hooks` and trust `unslop.py`.
 
-`./uninstall.sh` removes the wiring. Existing hooks stay.
+`./uninstall.sh` removes the skill copies, always-on blocks, and hooks.
+Existing unrelated hooks stay.
 
 Apache-2.0. Style digest from the [Google developer documentation style guide](https://developers.google.com/style), CC BY 4.0. See [NOTICE](NOTICE).
