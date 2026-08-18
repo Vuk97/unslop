@@ -1,16 +1,27 @@
 # Unslop
 
-Stops Claude, Codex, and Grok from writing like chatbots.
+Clear English for Claude, Codex, and Grok.
 
-`./install.sh` installs three things for you:
+Coding agents pad replies with chatbot filler, long dashes, and fake
+structure. Unslop is a writing skill plus hooks that make the **main thread**,
+**subagents**, and **their outputs** speak like a person writing technical docs:
+direct, active voice, second person, present tense. Briefs you send to
+subagents use the same style.
 
-1. **The skill** on Claude, Codex, and Grok (CLI and desktop).
-2. **Always-on rules** so the contract is in context every session.
-3. **Hooks** so the main thread, subagents, and outputs stay on voice.
+It is a local digest of the [Google developer documentation style guide](https://developers.google.com/style).
+The skill lives on disk. Agents do not need that website at runtime.
 
-Nothing fetches a URL. The contract is a local file.
+`./install.sh` does three jobs:
 
-## What install does
+1. **Installs the skill** on Claude, Codex, and Grok (CLI and desktop).
+2. **Writes always-on rules** so the style is in context every session.
+3. **Installs hooks** that inject the style, wrap child briefs, and bounce a
+   sloppy final reply once.
+
+A skill alone is optional. Models skip it. Hooks are what force the behavior
+on Code, Codex, and Grok.
+
+## Where it is installed
 
 | Surface | Skill | Always-on | Hooks |
 | --- | --- | --- | --- |
@@ -20,10 +31,9 @@ Nothing fetches a URL. The contract is a local file.
 | Claude Desktop Chat / Cowork | Auto-installed into the Desktop skill list and **enabled** | Always-on rules plus the enabled skill | No hook API. Skill is on; hooks are not |
 | claude.ai in the browser | Zip at `~/.local/share/unslop/unslop.zip` if the account list does not sync | Upload that zip once, leave Unslop on | No |
 
-`./install.sh` copies the skill. It also registers Unslop as enabled in Claude
-Desktop's local skill catalog, so you should not have to zip-upload on Desktop.
-claude.ai in a browser is a cloud account list. If the skill is missing there,
-upload the zip once.
+Claude Code and Claude chat are different products. Chat will not run hooks.
+On Desktop, `./install.sh` still registers Unslop as an enabled skill. In a
+browser, upload `unslop.zip` once if the account list did not sync.
 
 ## Install
 
@@ -40,4 +50,4 @@ In Codex, run `/hooks` and trust `unslop.py`.
 `./uninstall.sh` removes the skill copies, always-on blocks, and hooks.
 Existing unrelated hooks stay.
 
-Apache-2.0. Style digest from the [Google developer documentation style guide](https://developers.google.com/style), CC BY 4.0. See [NOTICE](NOTICE).
+Apache-2.0. Style digest from the Google developer documentation style guide, CC BY 4.0. See [NOTICE](NOTICE).
