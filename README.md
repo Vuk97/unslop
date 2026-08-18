@@ -1,6 +1,4 @@
-# Unslop
-
-Clear English for Claude, Codex, and Grok.
+# Unslop: clear technical English for agent output
 
 Coding agents pad replies with chatbot filler, long dashes, and fake
 structure. Unslop is a writing skill plus hooks that make the **main thread**,
